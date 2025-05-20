@@ -1,0 +1,1 @@
+MERGE INTO account (id, balance) KEY(id) VALUES (1, 10000.00);
