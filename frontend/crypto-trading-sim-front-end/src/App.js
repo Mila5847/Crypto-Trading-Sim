@@ -14,7 +14,7 @@ export default function App() {
 
   const handleSymbolsLoaded = (list) => {
     setSymbols(list);
-    setSelectedSymbol(list[0]);
+    setSelectedSymbol((prev) => prev || list[0]);
   };
 
   return (
