@@ -79,7 +79,7 @@ export default function TradeForm({ symbols, selected, onSelectChange, onRefresh
         </select>
         <input
           type="number"
-          step="0.00000001"
+          step="1"
           value={qty}
           onChange={e => setQty(e.target.value)}
           placeholder="Quantity"

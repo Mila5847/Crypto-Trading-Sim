@@ -81,7 +81,7 @@ public class KrakenPriceService {
         session.sendMessage(new TextMessage(mapper.writeValueAsString(payload)));
     }
 
-    private String[] fetchTop20Pairs() {
+    public String[] fetchTop20Pairs() {
         try {
             RestTemplate rest = new RestTemplate();
 
@@ -131,7 +131,7 @@ public class KrakenPriceService {
         }
     }
 
-    private void parseMessage(String json) {
+    public void parseMessage(String json) {
         try {
             JsonNode root = mapper.readTree(json);
             if (!root.has("channel") || !"ticker".equals(root.get("channel").asText())) return;
