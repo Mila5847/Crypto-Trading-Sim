@@ -18,17 +18,33 @@ export default function App() {
   };
 
   return (
-    <>
+    <div style={{ padding: "1rem", fontFamily: "Arial, sans-serif" }}>
       <h1>Crypto Trading Simulator</h1>
-      <PricesTable onSymbolsLoaded={handleSymbolsLoaded} />
-      <AccountPanel refresh={refreshTrigger} />
-      <TradeForm
-        symbols={symbols}
-        selected={selectedSymbol}
-        onSelectChange={setSelectedSymbol}
-        onRefresh={refresh}
-      />
-      <HistoryTable refresh={refreshTrigger} />
-    </>
+
+      {/* Prices (left) + Account (right) */}
+      <div style={{ display: "flex", gap: "2rem", marginBottom: "2rem" }}>
+        <div style={{ flex: 1 }}>
+          <PricesTable onSymbolsLoaded={handleSymbolsLoaded} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <AccountPanel refresh={refreshTrigger} />
+        </div>
+      </div>
+
+      {/* Trade Form (left) + History (right) */}
+      <div style={{ display: "flex", gap: "2rem" }}>
+        <div style={{ flex: 1 }}>
+          <TradeForm
+            symbols={symbols}
+            selected={selectedSymbol}
+            onSelectChange={setSelectedSymbol}
+            onRefresh={refresh}
+          />
+        </div>
+        <div style={{ flex: 1 }}>
+          <HistoryTable refresh={refreshTrigger} />
+        </div>
+      </div>
+    </div>
   );
 }
