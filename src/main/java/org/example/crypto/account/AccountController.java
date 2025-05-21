@@ -21,7 +21,6 @@ public class AccountController {
         this.priceService = priceService;
     }
 
-    /** Returns a map of {symbol -> lastPrice}. */
     @GetMapping("/prices")
     public Map<String, BigDecimal> prices() {
         return priceService.getCurrentPrices();

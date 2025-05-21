@@ -42,40 +42,71 @@ public class AccountService {
 
     @Transactional
     public AccountDTO buy(BuySellRequest req) {
+        validateRequest(req); // validate input
+
         BigDecimal price = requiredPrice(req.symbol());
         BigDecimal cost = price.multiply(req.quantity());
 
         BigDecimal balance = jdbc.queryForObject("SELECT balance FROM account WHERE id=?", BigDecimal.class, ACCOUNT_ID);
         if (balance.compareTo(cost) < 0) {
-            throw new IllegalArgumentException("Insufficient balance");
+            throw new IllegalArgumentException("Insufficient balance to complete purchase.");
         }
 
-        jdbc.update("UPDATE account SET balance = balance - ? WHERE id=?", cost, ACCOUNT_ID);
-        int updated = jdbc.update("UPDATE holdings SET quantity = quantity + ? WHERE symbol = ?", req.quantity(), req.symbol());
-        if (updated == 0) {
-            jdbc.update("INSERT INTO holdings(symbol, quantity) VALUES (?,?)", req.symbol(), req.quantity());
+        try {
+            jdbc.update("UPDATE account SET balance = balance - ? WHERE id=?", cost, ACCOUNT_ID);
+            int updated = jdbc.update("UPDATE holdings SET quantity = quantity + ? WHERE symbol = ?", req.quantity(), req.symbol());
+            if (updated == 0) {
+                jdbc.update("INSERT INTO holdings(symbol, quantity) VALUES (?,?)", req.symbol(), req.quantity());
+            }
+
+            jdbc.update("INSERT INTO transactions(symbol, quantity, price, type, timestamp) VALUES (?,?,?,?,?)",
+                    req.symbol(), req.quantity(), price, "BUY", LocalDateTime.now());
+
+            return getAccount();
+        } catch (Exception ex) {
+            throw new RuntimeException("Failed to complete BUY operation: " + ex.getMessage(), ex);
         }
-        jdbc.update("INSERT INTO transactions(symbol, quantity, price, type, timestamp) VALUES (?,?,?,?,?)",
-                req.symbol(), req.quantity(), price, "BUY", LocalDateTime.now());
-        return getAccount();
     }
 
     @Transactional
     public AccountDTO sell(BuySellRequest req) {
+        validateRequest(req);
+
         BigDecimal price = requiredPrice(req.symbol());
 
         BigDecimal heldQty = jdbc.queryForObject("SELECT quantity FROM holdings WHERE symbol=?",
                 BigDecimal.class, req.symbol());
         if (heldQty == null || heldQty.compareTo(req.quantity()) < 0) {
-            throw new IllegalArgumentException("Not enough holdings to sell");
+            throw new IllegalArgumentException("Not enough holdings to sell.");
         }
-        jdbc.update("UPDATE holdings SET quantity = quantity - ? WHERE symbol = ?", req.quantity(), req.symbol());
-        jdbc.update("UPDATE account SET balance = balance + ? WHERE id=?",
-                price.multiply(req.quantity()), ACCOUNT_ID);
-        jdbc.update("INSERT INTO transactions(symbol, quantity, price, type, timestamp) VALUES (?,?,?,?,?)",
-                req.symbol(), req.quantity(), price, "SELL", LocalDateTime.now());
-        jdbc.update("DELETE FROM holdings WHERE quantity = 0");
-        return getAccount();
+
+        try {
+            // Calculate average buy price
+            BigDecimal totalQty = jdbc.queryForObject(
+                    "SELECT COALESCE(SUM(quantity), 0) FROM transactions WHERE symbol=? AND type='BUY'",
+                    BigDecimal.class, req.symbol());
+
+            BigDecimal totalCost = jdbc.queryForObject(
+                    "SELECT COALESCE(SUM(quantity * price), 0) FROM transactions WHERE symbol=? AND type='BUY'",
+                    BigDecimal.class, req.symbol());
+
+            BigDecimal avgBuyPrice = (totalQty.compareTo(BigDecimal.ZERO) > 0)
+                    ? totalCost.divide(totalQty, 8, BigDecimal.ROUND_HALF_UP)
+                    : BigDecimal.ZERO;
+
+            BigDecimal profitLoss = price.subtract(avgBuyPrice).multiply(req.quantity());
+
+            jdbc.update("UPDATE holdings SET quantity = quantity - ? WHERE symbol = ?", req.quantity(), req.symbol());
+            jdbc.update("UPDATE account SET balance = balance + ? WHERE id=?",
+                    price.multiply(req.quantity()), ACCOUNT_ID);
+            jdbc.update("INSERT INTO transactions(symbol, quantity, price, type, pl, timestamp) VALUES (?,?,?,?,?,?)",
+                    req.symbol(), req.quantity(), price, "SELL", profitLoss, LocalDateTime.now());
+            jdbc.update("DELETE FROM holdings WHERE quantity = 0");
+
+            return getAccount();
+        } catch (Exception ex) {
+            throw new RuntimeException("Failed to complete SELL operation: " + ex.getMessage(), ex);
+        }
     }
 
     @Transactional
@@ -84,6 +115,18 @@ public class AccountService {
         jdbc.update("DELETE FROM holdings");
         jdbc.update("DELETE FROM transactions");
         return getAccount();
+    }
+
+    private void validateRequest(BuySellRequest req) {
+        if (req == null) {
+            throw new IllegalArgumentException("Trade request cannot be null.");
+        }
+        if (req.symbol() == null || req.symbol().isBlank()) {
+            throw new IllegalArgumentException("Symbol is required.");
+        }
+        if (req.quantity() == null || req.quantity().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Quantity must be a positive number.");
+        }
     }
 
     private BigDecimal requiredPrice(String symbol) {
@@ -106,8 +149,7 @@ public class AccountService {
         BigDecimal price = rs.getBigDecimal("price");
         String type = rs.getString("type");
         LocalDateTime ts = rs.getTimestamp("timestamp").toLocalDateTime();
-        BigDecimal current = priceService.getPrice(symbol);
-        BigDecimal pnl = (current != null) ? current.subtract(price).multiply(qty) : BigDecimal.ZERO;
+        BigDecimal pnl = rs.getBigDecimal("pl");
         return new TransactionDTO(id, symbol, qty, price, type, ts, pnl);
     }
 }

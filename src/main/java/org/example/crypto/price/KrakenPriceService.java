@@ -1,4 +1,5 @@
 package org.example.crypto.price;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -32,20 +33,40 @@ public class KrakenPriceService {
 
     @PostConstruct
     public void init() {
-        pairs = fetchTop20Pairs(); // Top 20 by market cap
-        client.doHandshake(new AbstractWebSocketHandler() {
-            @Override
-            public void afterConnectionEstablished(WebSocketSession session) throws Exception {
-                subscribe(session);
+        try {
+            pairs = fetchTop20Pairs();
+            if (pairs.length == 0) {
+                System.err.println("[ERROR] No valid pairs found. KrakenPriceService will not connect.");
+                return;
             }
 
-            @Override
-            protected void handleTextMessage(WebSocketSession session, TextMessage message) {
-                parseMessage(message.getPayload());
-            }
-        }, String.valueOf(URI.create(krakenWsUrl)));
+            client.doHandshake(new AbstractWebSocketHandler() {
+                @Override
+                public void afterConnectionEstablished(WebSocketSession session) throws Exception {
+                    try {
+                        subscribe(session);
+                        System.out.println("[INFO] Subscribed to Kraken ticker for: " + Arrays.toString(pairs));
+                    } catch (Exception e) {
+                        System.err.println("[ERROR] Failed to subscribe to Kraken ticker: " + e.getMessage());
+                    }
+                }
+
+                @Override
+                protected void handleTextMessage(WebSocketSession session, TextMessage message) {
+                    parseMessage(message.getPayload());
+                }
+
+                @Override
+                public void handleTransportError(WebSocketSession session, Throwable exception) {
+                    System.err.println("[ERROR] WebSocket transport error: " + exception.getMessage());
+                }
+            }, String.valueOf(URI.create(krakenWsUrl)));
+
+        } catch (Exception e) {
+            System.err.println("[ERROR] Kraken WebSocket init failed: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
-
 
     /** Send a _subscribe_ request to the ticker channel for all 20 pairs. */
     private void subscribe(WebSocketSession session) throws Exception {
@@ -62,20 +83,19 @@ public class KrakenPriceService {
 
     private String[] fetchTop20Pairs() {
         try {
-            // 1. Fetch top 20 coins from CoinGecko
-            String cgUrl = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=20&page=1";
             RestTemplate rest = new RestTemplate();
+
+            String cgUrl = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=20&page=1";
             JsonNode cgRoot = mapper.readTree(rest.getForObject(cgUrl, String.class));
 
             Set<String> topSymbols = new HashSet<>();
             for (JsonNode coin : cgRoot) {
                 String symbol = coin.path("symbol").asText().toUpperCase();
-                if (symbol.equals("BTC")) symbol = "XBT"; // adjust for Kraken
+                if (symbol.equals("BTC")) symbol = "XBT";
                 if (symbol.equals("IOTA")) symbol = "MIOTA";
                 topSymbols.add(symbol);
             }
 
-            // 2. Fetch Kraken's available pairs
             String krakenUrl = "https://api.kraken.com/0/public/AssetPairs";
             JsonNode root = mapper.readTree(rest.getForObject(krakenUrl, String.class));
 
@@ -98,8 +118,14 @@ public class KrakenPriceService {
                 }
             }
 
+            if (result.isEmpty()) {
+                System.err.println("[WARN] No matching Kraken pairs found for top 20 coins.");
+            }
+
             return result.toArray(new String[0]);
+
         } catch (Exception e) {
+            System.err.println("[ERROR] Failed to fetch top 20 pairs: " + e.getMessage());
             e.printStackTrace();
             return new String[0];
         }
@@ -109,16 +135,19 @@ public class KrakenPriceService {
         try {
             JsonNode root = mapper.readTree(json);
             if (!root.has("channel") || !"ticker".equals(root.get("channel").asText())) return;
+
             JsonNode dataArr = root.path("data");
             if (!dataArr.isArray() || dataArr.isEmpty()) return;
+
             JsonNode ticker = dataArr.get(0);
             String symbol = ticker.get("symbol").asText();
             JsonNode lastNode = ticker.get("last");
+
             if (lastNode != null && lastNode.isNumber()) {
                 prices.put(symbol, lastNode.decimalValue());
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            System.err.println("[ERROR] Failed to parse Kraken ticker message: " + e.getMessage());
         }
     }
 

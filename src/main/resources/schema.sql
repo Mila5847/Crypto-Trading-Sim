@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     symbol     VARCHAR(10) NOT NULL,
     quantity   NUMERIC(18,8) NOT NULL,
     price      NUMERIC(18,2) NOT NULL,
-    type       VARCHAR(4) NOT NULL,
+    type       VARCHAR(4) NOT NULL,   -- 'BUY' or 'SELL'
+    pl         NUMERIC(18,2),         -- NULL for BUY, actual P/L for SELL
     timestamp  TIMESTAMP NOT NULL
 );
